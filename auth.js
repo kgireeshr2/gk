@@ -133,14 +133,34 @@ async function handleLogin(e) {
 
       let users  = getUsers();
       let adminU = users.find(u => u.email === ADMIN.email);
+
       if (!adminU) {
-        // First admin login – bootstrap encryption salt
-        const { salt, cryptoKey } = await initEncryption(encPass);
-        adminU = { email: ADMIN.email, name: ADMIN.name, role: 'admin', hash: adminHash, encSalt: salt };
-        users.push(adminU); saveUsers(users);
-        window.currentCryptoKey = cryptoKey;
+        // User entry missing — try to recover salt from encrypted blob in encStore
+        const encStore   = JSON.parse(localStorage.getItem('acctMgr_encStore') || '{}');
+        const existingBlob = encStore[ADMIN.email];
+        console.log('[Auth] Admin user entry missing. Existing blob:', existingBlob ? 'found (salt=' + existingBlob.salt?.slice(0,8) + '...)' : 'none');
+
+        if (existingBlob && existingBlob.salt) {
+          // Data exists — derive key from blob salt and attempt decryption
+          const key    = await deriveKey(encPass, existingBlob.salt);
+          const result = await loadUserRecords(ADMIN.email, key).catch(() => 'WRONG_KEY');
+          if (result === 'WRONG_KEY') { setAuthError('loginEncKey','errLoginEncKey','Wrong encryption key.'); return; }
+          // Restore the admin user entry so future logins work
+          adminU = { email: ADMIN.email, name: ADMIN.name, role: 'admin', hash: adminHash, encSalt: existingBlob.salt };
+          users.push(adminU); saveUsers(users);
+          window.currentCryptoKey = key;
+          console.log('[Auth] Admin salt recovered from encrypted blob.');
+        } else {
+          // Truly first login — generate fresh salt
+          const { salt, cryptoKey } = await initEncryption(encPass);
+          adminU = { email: ADMIN.email, name: ADMIN.name, role: 'admin', hash: adminHash, encSalt: salt };
+          users.push(adminU); saveUsers(users);
+          window.currentCryptoKey = cryptoKey;
+          console.log('[Auth] Admin first login — new salt generated.');
+        }
       } else {
-        const key = await deriveKey(encPass, adminU.encSalt);
+        console.log('[Auth] Admin user found with encSalt:', adminU.encSalt?.slice(0,8) + '...');
+        const key    = await deriveKey(encPass, adminU.encSalt);
         const result = await loadUserRecords(adminU.email, key).catch(() => 'WRONG_KEY');
         if (result === 'WRONG_KEY') { setAuthError('loginEncKey','errLoginEncKey','Wrong encryption key.'); return; }
         window.currentCryptoKey = key;
@@ -154,9 +174,34 @@ async function handleLogin(e) {
 
     // ── REGISTERED USER ──
     const users = getUsers();
-    const user  = users.find(u => u.email === identifier);
-    if (!user)              { setAuthError('loginEmail',   'errLoginEmail',  'No account found.'); return; }
+    let user  = users.find(u => u.email === identifier);
+    if (!user) {
+      // Check if encrypted blob exists — user entry may be missing after fresh device load
+      const encStore = JSON.parse(localStorage.getItem('acctMgr_encStore') || '{}');
+      if (encStore[identifier]) {
+        setAuthError('loginEmail', 'errLoginEmail', 'Account data found but profile is missing. Please re-register or push data from your original device.');
+      } else {
+        setAuthError('loginEmail', 'errLoginEmail', 'No account found with this email.');
+      }
+      return;
+    }
+
+    // If encSalt missing (partial restore), try to recover from blob
     if (user.hash !== pwdHash) { setAuthError('loginPassword','errLoginPwd', 'Incorrect password.'); return; }
+
+    if (!user.encSalt) {
+      const encStore = JSON.parse(localStorage.getItem('acctMgr_encStore') || '{}');
+      if (encStore[identifier] && encStore[identifier].salt) {
+        user.encSalt = encStore[identifier].salt;
+        // Update stored entry
+        const updatedUsers = users.map(u => u.email === identifier ? { ...u, encSalt: user.encSalt } : u);
+        saveUsers(updatedUsers);
+        console.log('[Auth] Recovered encSalt from blob for:', identifier);
+      } else {
+        setAuthError('loginEncKey', 'errLoginEncKey', 'Encryption salt missing. Push data from original device first.');
+        return;
+      }
+    }
 
     const key = await deriveKey(encPass, user.encSalt);
     const result = await loadUserRecords(user.email, key).catch(() => 'WRONG_KEY');

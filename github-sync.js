@@ -135,14 +135,22 @@ async function githubLoad() {
     if (res.status === 404) { console.log('[GH Sync] Remote file not found yet.'); return false; }
     if (!res.ok) { console.warn('[GH Sync] Load failed:', res.status, res.statusText); return false; }
     const json    = await res.json();
-    const content = fromBase64(json.content.replace(/\n/g, ''));
+    // GitHub wraps base64 with \r\n every 60 chars — strip ALL whitespace
+    const rawB64  = json.content.replace(/\s/g, '');
+    console.log('[GH Sync] Raw base64 length:', rawB64.length);
+    const content = fromBase64(rawB64);
+    console.log('[GH Sync] Decoded content length:', content.length, '| first 50:', content.slice(0, 50));
     try {
       const parsed = JSON.parse(content);
-      console.log('[GH Sync] Remote JSON keys:', Object.keys(parsed));
+      console.log('[GH Sync] Keys in remote file:', Object.keys(parsed));
       console.log('[GH Sync] Has __users:', !!parsed.__users, parsed.__users ? parsed.__users.map(u => u.email) : 'none');
-    } catch { console.warn('[GH Sync] Could not parse for diagnostics'); }
-    const merged  = mergeRemoteStore(content);
-    console.log('[GH Sync] Remote data loaded and merged:', merged);
+      console.log('[GH Sync] Encrypted blobs for:', Object.keys(parsed).filter(k => k !== '__users'));
+    } catch (diagErr) {
+      console.error('[GH Sync] Parse failed:', diagErr.message);
+      console.error('[GH Sync] Content snippet:', content.slice(0, 200));
+    }
+    const merged = mergeRemoteStore(content);
+    console.log('[GH Sync] Merge result:', merged);
     return merged;
   } catch (err) {
     console.warn('[GH Sync] githubLoad error:', err);
