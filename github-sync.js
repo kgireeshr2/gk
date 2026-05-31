@@ -126,11 +126,15 @@ async function githubLoad() {
     const res = await fetch(url, {
       headers: { Authorization: `token ${cfg.token}`, Accept: 'application/vnd.github+json' },
     });
-    if (!res.ok) return false;
-    const json = await res.json();
+    if (res.status === 404) { console.log('[GH Sync] Remote file not found yet.'); return false; }
+    if (!res.ok) { console.warn('[GH Sync] Load failed:', res.status, res.statusText); return false; }
+    const json    = await res.json();
     const content = fromBase64(json.content.replace(/\n/g, ''));
-    return mergeRemoteStore(content);
-  } catch {
+    const merged  = mergeRemoteStore(content);
+    console.log('[GH Sync] Remote data loaded and merged:', merged);
+    return merged;
+  } catch (err) {
+    console.warn('[GH Sync] githubLoad error:', err);
     return false;
   }
 }
@@ -174,14 +178,20 @@ async function saveSettings(e) {
     return;
   }
 
-  // Test connection
+  // Test connection: verify the REPO exists (not the file — file won't exist on first sync)
   const btn = document.getElementById('btnSaveSettings');
   btn.disabled = true;
   btn.textContent = 'Testing…';
 
   try {
-    await getFileSHA(cfg);   // just checks the API responds
+    const repoRes = await fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}`, {
+      headers: { Authorization: `token ${cfg.token}`, Accept: 'application/vnd.github+json' },
+    });
+    if (repoRes.status === 401 || repoRes.status === 403) throw new Error('Invalid token or insufficient permissions.');
+    if (repoRes.status === 404) throw new Error(`Repo "${cfg.owner}/${cfg.repo}" not found. Check username and repo name.`);
+    if (!repoRes.ok) throw new Error(`GitHub API ${repoRes.status}: ${repoRes.statusText}`);
     saveGHConfig(cfg);
+    updateSettingsBadge();
     closeSettingsModal();
     showToast('GitHub sync configured! ✅');
   } catch (err) {

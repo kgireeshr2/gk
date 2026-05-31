@@ -69,16 +69,20 @@ function toCSV(data) {
 // 4. LOAD RECORDS ON AUTH READY
 // ──────────────────────────────────────────────
 async function initRecords() {
-  // Try GitHub pull first (new device scenario)
+  // Try GitHub pull first (syncs remote encrypted store to localStorage)
   if (typeof githubLoad === 'function') await githubLoad();
 
-  const existing = await loadUserRecords(window.currentUserEmail, window.currentCryptoKey);
-  if (existing !== null) {
-    records = existing;
-    return;
+  try {
+    const existing = await loadUserRecords(window.currentUserEmail, window.currentCryptoKey);
+    records = existing !== null ? existing : [];
+  } catch (err) {
+    console.error('[initRecords] Decryption failed:', err);
+    records = [];
   }
-  records = [];
-  await persistRecords();
+
+  if (records.length === 0) {
+    await persistRecords();  // ensure an empty encrypted entry is saved for this user
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -100,7 +104,7 @@ function applyFilters() {
 
 function imageCell(src) {
   if (src && src.trim()) {
-    return `<img src="${escHtml(src)}" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<span class=no-image>🖼</span>'" />`;
+    return `<img src="${escHtml(src)}" alt="" loading="lazy" onerror="if(this.parentElement){this.parentElement.innerHTML='<span class=no-image>\uD83D\uDDBC</span>'}else{this.style.display='none'}" />`;
   }
   return `<span class="no-image">🖼</span>`;
 }
@@ -280,7 +284,7 @@ async function deleteRecord(id) {
 // ──────────────────────────────────────────────
 function buildViewContent(r) {
   const imgSlot = (src) => src
-    ? `<img src="${escHtml(src)}" alt="" loading="lazy" onerror="this.outerHTML='<span class=no-img>🖼</span>'" />`
+    ? `<img src="${escHtml(src)}" alt="" loading="lazy" onerror="this.style.display='none'" />`
     : `<span class="no-img">🖼</span>`;
 
   return `
