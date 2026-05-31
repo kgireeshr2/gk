@@ -36,11 +36,17 @@ function clearGHConfig() {
 // Base64 encode / decode (browser-safe, handles UTF-8)
 // ──────────────────────────────────────────────
 function toBase64(str) {
-  return btoa(unescape(encodeURIComponent(str)));
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
 
 function fromBase64(b64) {
-  return decodeURIComponent(escape(atob(b64)));
+  const binary = atob(b64);
+  const bytes  = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
 }
 
 // ──────────────────────────────────────────────
