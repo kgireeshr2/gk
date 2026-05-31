@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Account Manager</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ===== LOGIN SCREEN ===== -->
+  <div id="loginScreen" class="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-logo">&#128274;</div>
+      <h1 class="auth-title">Account Manager</h1>
+
+      <!-- Tab switcher -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin"  data-tab="login">Sign In</button>
+        <button class="auth-tab"        id="tabRegister" data-tab="register">Register</button>
+      </div>
+
+      <!-- ── LOGIN PANEL ── -->
+      <div id="panelLogin" class="auth-panel">
+        <form id="loginForm" novalidate>
+          <div class="form-group">
+            <label for="loginEmail">Username or Email</label>
+              <input type="text" id="loginEmail" placeholder="username or you@example.com" required autocomplete="username" />
+            <span class="error-msg" id="errLoginEmail"></span>
+          </div>
+          <div class="form-group">
+            <label for="loginPassword">Password</label>
+            <div class="pwd-wrap">
+              <input type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password" />
+              <button type="button" class="toggle-pwd" data-target="loginPassword">&#128065;</button>
+            </div>
+            <span class="error-msg" id="errLoginPwd"></span>
+          </div>
+          <label class="remember-row">
+            <input type="checkbox" id="rememberMe" /> Remember me
+          </label>
+          <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+        </form>
+      </div>
+
+      <!-- ── REGISTER PANEL ── -->
+      <div id="panelRegister" class="auth-panel hidden">
+        <form id="registerForm" novalidate>
+          <div class="form-group">
+            <label for="regName">Full Name <span class="req">*</span></label>
+            <input type="text" id="regName" placeholder="Alice Johnson" required />
+            <span class="error-msg" id="errRegName"></span>
+          </div>
+          <div class="form-group">
+            <label for="regEmail">Email <span class="req">*</span></label>
+            <input type="email" id="regEmail" placeholder="you@example.com" required autocomplete="email" />
+            <span class="error-msg" id="errRegEmail"></span>
+          </div>
+          <div class="form-group">
+            <label for="regPassword">Password <span class="req">*</span></label>
+            <div class="pwd-wrap">
+              <input type="password" id="regPassword" placeholder="Min 8 chars" required autocomplete="new-password" />
+              <button type="button" class="toggle-pwd" data-target="regPassword">&#128065;</button>
+            </div>
+            <span class="error-msg" id="errRegPwd"></span>
+          </div>
+          <div class="form-group">
+            <label for="regConfirm">Confirm Password <span class="req">*</span></label>
+            <div class="pwd-wrap">
+              <input type="password" id="regConfirm" placeholder="Repeat password" required autocomplete="new-password" />
+              <button type="button" class="toggle-pwd" data-target="regConfirm">&#128065;</button>
+            </div>
+            <span class="error-msg" id="errRegConfirm"></span>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">Create Account</button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== MAIN APP (hidden until logged in) ===== -->
+  <div id="appShell" class="hidden">
+
+  <!-- ===== HEADER ===== -->
+  <header>
+    <div class="header-inner">
+      <h1>&#128274; Account Manager</h1>
+      <div class="header-actions">
+        <span id="headerUser" class="header-user"></span>
+        <button id="btnExportCSV" class="btn btn-outline">&#8595; Export CSV</button>
+        <button id="btnImportCSV" class="btn btn-outline">&#8593; Import CSV</button>
+        <input type="file" id="csvFileInput" accept=".csv" hidden />
+        <button id="btnAddNew" class="btn btn-primary">&#43; Add Account</button>
+        <button id="btnLogout" class="btn btn-ghost">&#128274; Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== SEARCH / FILTER BAR ===== -->
+  <div class="toolbar">
+    <input type="search" id="searchInput" placeholder="&#128269;  Search by name, email, platform…" />
+    <select id="filterAuth">
+      <option value="">All Auth Types</option>
+      <option value="Gmail Auth">Gmail Auth</option>
+      <option value="Username/Password">Username / Password</option>
+      <option value="Phone Auth">Phone Auth</option>
+      <option value="Apple Auth">Apple Auth</option>
+      <option value="Other">Other</option>
+    </select>
+    <select id="filterPlatform">
+      <option value="">All Platforms</option>
+      <option value="Facebook">Facebook</option>
+      <option value="Instagram">Instagram</option>
+      <option value="Twitter/X">Twitter / X</option>
+      <option value="LinkedIn">LinkedIn</option>
+      <option value="Google">Google</option>
+      <option value="Amazon">Amazon</option>
+      <option value="Netflix">Netflix</option>
+      <option value="GitHub">GitHub</option>
+      <option value="Other">Other</option>
+    </select>
+    <span id="recordCount" class="record-count">0 records</span>
+  </div>
+
+  <!-- ===== CARDS GRID ===== -->
+  <main id="cardsContainer" class="cards-grid"></main>
+
+  <!-- ===== EMPTY STATE ===== -->
+  <div id="emptyState" class="empty-state hidden">
+    <div class="empty-icon">&#128193;</div>
+    <p>No accounts found. Add one to get started!</p>
+  </div>
+
+  <!-- ===== MODAL ===== -->
+  <div id="modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">Add Account</h2>
+        <button class="modal-close" id="btnCloseModal">&times;</button>
+      </div>
+
+      <form id="accountForm" novalidate>
+        <input type="hidden" id="fieldId" />
+
+        <div class="form-grid">
+          <!-- Full Name -->
+          <div class="form-group">
+            <label for="fieldFullName">Full Name <span class="req">*</span></label>
+            <input type="text" id="fieldFullName" placeholder="Alice Johnson" required />
+            <span class="error-msg" id="errFullName"></span>
+          </div>
+
+          <!-- DOB -->
+          <div class="form-group">
+            <label for="fieldDob">Date of Birth <span class="req">*</span></label>
+            <input type="date" id="fieldDob" required />
+            <span class="error-msg" id="errDob"></span>
+          </div>
+
+          <!-- Email -->
+          <div class="form-group">
+            <label for="fieldEmail">Email <span class="req">*</span></label>
+            <input type="email" id="fieldEmail" placeholder="alice@example.com" required />
+            <span class="error-msg" id="errEmail"></span>
+          </div>
+
+          <!-- Phone -->
+          <div class="form-group">
+            <label for="fieldPhone">Phone</label>
+            <input type="tel" id="fieldPhone" placeholder="+1-555-0101" />
+          </div>
+
+          <!-- Account Created For -->
+          <div class="form-group">
+            <label for="fieldPlatform">Account Created For <span class="req">*</span></label>
+            <select id="fieldPlatform" required>
+              <option value="">— Select Platform —</option>
+              <option value="Facebook">Facebook</option>
+              <option value="Instagram">Instagram</option>
+              <option value="Twitter/X">Twitter / X</option>
+              <option value="LinkedIn">LinkedIn</option>
+              <option value="Google">Google</option>
+              <option value="Amazon">Amazon</option>
+              <option value="Netflix">Netflix</option>
+              <option value="GitHub">GitHub</option>
+              <option value="Other">Other</option>
+            </select>
+            <span class="error-msg" id="errPlatform"></span>
+          </div>
+
+          <!-- Auth Type -->
+          <div class="form-group">
+            <label for="fieldAuth">Auth Type <span class="req">*</span></label>
+            <select id="fieldAuth" required>
+              <option value="">— Select Auth Type —</option>
+              <option value="Gmail Auth">Gmail Auth</option>
+              <option value="Username/Password">Username / Password</option>
+              <option value="Phone Auth">Phone Auth</option>
+              <option value="Apple Auth">Apple Auth</option>
+              <option value="Other">Other</option>
+            </select>
+            <span class="error-msg" id="errAuth"></span>
+          </div>
+        </div>
+
+        <!-- Purpose -->
+        <div class="form-group full-width">
+          <label for="fieldPurpose">Purpose / Why created <span class="req">*</span></label>
+          <input type="text" id="fieldPurpose" placeholder="e.g. Staying in touch with family" required />
+          <span class="error-msg" id="errPurpose"></span>
+        </div>
+
+        <!-- Comments -->
+        <div class="form-group full-width">
+          <label for="fieldComments">Comments</label>
+          <textarea id="fieldComments" rows="3" placeholder="Additional notes…"></textarea>
+        </div>
+
+        <!-- Images -->
+        <div class="form-group full-width">
+          <label>Images (up to 3)</label>
+          <div class="image-inputs">
+            <div class="img-input-wrap">
+              <label class="img-label">Image 1</label>
+              <input type="text" id="fieldImg1URL" placeholder="Paste URL or upload &#8595;" />
+              <input type="file" id="fieldImg1File" accept="image/*" class="img-file" />
+              <div class="img-preview-wrap">
+                <img id="previewImg1" class="img-preview hidden" alt="Preview 1" />
+              </div>
+            </div>
+            <div class="img-input-wrap">
+              <label class="img-label">Image 2</label>
+              <input type="text" id="fieldImg2URL" placeholder="Paste URL or upload &#8595;" />
+              <input type="file" id="fieldImg2File" accept="image/*" class="img-file" />
+              <div class="img-preview-wrap">
+                <img id="previewImg2" class="img-preview hidden" alt="Preview 2" />
+              </div>
+            </div>
+            <div class="img-input-wrap">
+              <label class="img-label">Image 3</label>
+              <input type="text" id="fieldImg3URL" placeholder="Paste URL or upload &#8595;" />
+              <input type="file" id="fieldImg3File" accept="image/*" class="img-file" />
+              <div class="img-preview-wrap">
+                <img id="previewImg3" class="img-preview hidden" alt="Preview 3" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="btnCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSave">Save Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== VIEW MODAL ===== -->
+  <div id="viewModal" class="modal-overlay hidden">
+    <div class="modal modal-view">
+      <div class="modal-header">
+        <h2 id="viewModalTitle">Account Details</h2>
+        <button class="modal-close" id="btnCloseViewModal">&times;</button>
+      </div>
+      <div id="viewContent"></div>
+    </div>
+  </div>
+
+  <!-- ===== DELETE CONFIRM ===== -->
+  <div id="deleteModal" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>Delete Account</h2>
+        <button class="modal-close" id="btnCloseDeleteModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete <strong id="deleteTargetName"></strong>? This cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelDelete">Cancel</button>
+        <button class="btn btn-danger" id="btnConfirmDelete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /#appShell -->
+
+  <!-- ===== TOAST (global) ===== -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="auth.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

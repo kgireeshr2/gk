@@ -1,0 +1,4 @@
+id,fullName,dob,email,phone,purpose,accountCreatedFor,authType,comments,image1,image2,image3,createdAt
+1,Alice Johnson,1990-05-14,alice@example.com,+1-555-0101,Personal use,Facebook,Gmail Auth,Created to stay connected with friends,https://picsum.photos/seed/alice1/300/200,https://picsum.photos/seed/alice2/300/200,https://picsum.photos/seed/alice3/300/200,2024-01-10T08:30:00Z
+2,Bob Martinez,1985-11-22,bob.martinez@example.com,+1-555-0202,Business networking,LinkedIn,Username/Password,Used for professional connections and job hunting,https://picsum.photos/seed/bob1/300/200,https://picsum.photos/seed/bob2/300/200,https://picsum.photos/seed/bob3/300/200,2024-02-15T10:00:00Z
+3,Carol White,1995-03-08,carol.white@example.com,+44-7700-900123,Shopping & deals,Amazon,Gmail Auth,Track orders and wishlist items,https://picsum.photos/seed/carol1/300/200,https://picsum.photos/seed/carol2/300/200,https://picsum.photos/seed/carol3/300/200,2024-03-20T14:45:00Z
