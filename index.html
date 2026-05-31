@@ -35,11 +35,19 @@
               <button type="button" class="toggle-pwd" data-target="loginPassword">&#128065;</button>
             </div>
             <span class="error-msg" id="errLoginPwd"></span>
-          </div>
+          </div>          <div class="form-group">
+            <label for="loginEncKey">&#128272; Encryption Key <span class="req">*</span></label>
+            <div class="pwd-wrap">
+              <input type="password" id="loginEncKey" placeholder="Your data encryption key" required autocomplete="off" />
+              <button type="button" class="toggle-pwd" data-target="loginEncKey">&#128065;</button>
+            </div>
+            <span class="error-msg" id="errLoginEncKey"></span>
+            <small style="color:var(--clr-muted);font-size:.72rem">Used to decrypt your data. Never stored.</small>
+          </div>          <label for="btnLogin"><!-- id anchor --></label>
           <label class="remember-row">
             <input type="checkbox" id="rememberMe" /> Remember me
           </label>
-          <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+          <button type="submit" id="btnLogin" class="btn btn-primary btn-full">Sign In</button>
         </form>
       </div>
 
@@ -72,7 +80,24 @@
             </div>
             <span class="error-msg" id="errRegConfirm"></span>
           </div>
-          <button type="submit" class="btn btn-primary btn-full">Create Account</button>
+          <div class="form-group">
+            <label for="regEncKey">&#128272; Encryption Key <span class="req">*</span></label>
+            <div class="pwd-wrap">
+              <input type="password" id="regEncKey" placeholder="Min 6 chars, keep it safe!" required autocomplete="off" />
+              <button type="button" class="toggle-pwd" data-target="regEncKey">&#128065;</button>
+            </div>
+            <span class="error-msg" id="errRegEncKey"></span>
+          </div>
+          <div class="form-group">
+            <label for="regEncKeyConfirm">Confirm Encryption Key <span class="req">*</span></label>
+            <div class="pwd-wrap">
+              <input type="password" id="regEncKeyConfirm" placeholder="Repeat encryption key" required autocomplete="off" />
+              <button type="button" class="toggle-pwd" data-target="regEncKeyConfirm">&#128065;</button>
+            </div>
+            <span class="error-msg" id="errRegEncKeyConfirm"></span>
+            <small style="color:#f87171;font-size:.72rem">&#9888; If you forget this key your data cannot be recovered.</small>
+          </div>
+          <button type="submit" id="btnRegister" class="btn btn-primary btn-full">Create Account</button>
         </form>
       </div>
 
@@ -87,7 +112,9 @@
     <div class="header-inner">
       <h1>&#128274; Account Manager</h1>
       <div class="header-actions">
+        <span id="syncIndicator" class="sync-indicator"></span>
         <span id="headerUser" class="header-user"></span>
+        <button id="btnOpenSettings" class="btn btn-outline" title="Connect GitHub">&#9881; GitHub Sync</button>
         <button id="btnExportCSV" class="btn btn-outline">&#8595; Export CSV</button>
         <button id="btnImportCSV" class="btn btn-outline">&#8593; Import CSV</button>
         <input type="file" id="csvFileInput" accept=".csv" hidden />
@@ -286,10 +313,59 @@
 
   </div><!-- /#appShell -->
 
+  <!-- ===== GITHUB SETTINGS MODAL ===== -->
+  <div id="settingsModal" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>&#9881; GitHub Sync Settings</h2>
+        <button class="modal-close" id="btnCloseSettings">&times;</button>
+      </div>
+      <form id="settingsForm" novalidate>
+        <div style="padding:1.25rem 1.5rem;display:flex;flex-direction:column;gap:.9rem">
+          <p style="font-size:.82rem;color:var(--clr-muted);line-height:1.6">
+            Connect to your GitHub repo to auto-save <code>data.csv</code> on every change.
+            Create a <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" style="color:var(--clr-primary)">Personal Access Token</a> with <strong>repo</strong> scope.
+          </p>
+          <div class="form-group">
+            <label for="ghOwner">GitHub Username / Org <span class="req">*</span></label>
+            <input type="text" id="ghOwner" placeholder="e.g. gireeshkamasani" required />
+          </div>
+          <div class="form-group">
+            <label for="ghRepo">Repository Name <span class="req">*</span></label>
+            <input type="text" id="ghRepo" placeholder="e.g. GitStaticPages" required />
+          </div>
+          <div class="form-group">
+            <label for="ghBranch">Branch</label>
+            <input type="text" id="ghBranch" placeholder="main" value="main" />
+          </div>
+          <div class="form-group">
+            <label for="ghPath">File Path in Repo</label>
+            <input type="text" id="ghPath" placeholder="encrypted_data.json" value="encrypted_data.json" />
+          </div>
+          <div class="form-group">
+            <label for="ghToken">Personal Access Token <span class="req">*</span></label>
+            <div class="pwd-wrap">
+              <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxx" required />
+              <button type="button" class="toggle-pwd" data-target="ghToken">&#128065;</button>
+            </div>
+            <span style="font-size:.72rem;color:var(--clr-muted)">Stored only in your browser&#39;s localStorage.</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="btnDisconnectGH">Disconnect</button>
+          <button type="button" class="btn btn-ghost" id="btnCancelSettings">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSaveSettings">Save &amp; Connect</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ===== TOAST (global) ===== -->
   <div id="toast" class="toast hidden"></div>
 
+  <script src="crypto-store.js"></script>
   <script src="auth.js"></script>
+  <script src="github-sync.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

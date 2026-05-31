@@ -1,7 +1,8 @@
 /* =============================================================
    auth.js – Login / Register / Session management
-   - Master admin: admin@site.com  /  Admin@123
+   - Master admin: username gireeshkamasani  /  #123Gkkg
    - Registered users stored in localStorage (passwords SHA-256 hashed)
+   - Each user has their own AES-GCM encryption passphrase
    - Session stored in localStorage (remember-me) or sessionStorage
    ============================================================= */
 
@@ -13,13 +14,17 @@
 const AUTH_USERS_KEY   = 'acctMgr_users';
 const AUTH_SESSION_KEY = 'acctMgr_session';
 
-// Master admin credentials (password is hashed at runtime for comparison)
 const ADMIN = {
   email:    'gireeshkamasani',
   name:     'Gireesh Kamasani',
   role:     'admin',
-  password: '#123Gkkg',   // used only for runtime hash comparison, never stored
+  password: '#123Gkkg',
+  encKey:   '#123Gkkg',
 };
+
+// In-memory session state (set after successful login, never persisted)
+window.currentUserEmail = null;
+window.currentCryptoKey = null;
 
 // ──────────────────────────────────────────────
 // HELPERS
@@ -45,7 +50,7 @@ function getSession() {
 }
 
 function setSession(user, remember) {
-  const data = JSON.stringify({ email: user.email, name: user.name, role: user.role || 'user' });
+  const data = JSON.stringify({ email: user.email, name: user.name, role: user.role || 'user', encSalt: user.encSalt || null });
   if (remember) localStorage.setItem(AUTH_SESSION_KEY, data);
   else          sessionStorage.setItem(AUTH_SESSION_KEY, data);
 }
@@ -53,6 +58,8 @@ function setSession(user, remember) {
 function clearSession() {
   localStorage.removeItem(AUTH_SESSION_KEY);
   sessionStorage.removeItem(AUTH_SESSION_KEY);
+  window.currentUserEmail = null;
+  window.currentCryptoKey = null;
 }
 
 // ──────────────────────────────────────────────
@@ -72,16 +79,21 @@ function authToast(msg, type = 'success') {
 // APP GATE – show/hide login vs. app shell
 // ──────────────────────────────────────────────
 function launchApp(session) {
-  // Populate header user pill
   const pill = document.getElementById('headerUser');
   if (pill) {
-    const roleLabel = session.role === 'admin' ? ' 👑' : '';
+    const roleLabel = session.role === 'admin' ? ' 👑' : ' 🔐';
     pill.textContent = `${session.name}${roleLabel}`;
   }
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
-  // Signal app.js that auth is done
   document.dispatchEvent(new CustomEvent('authReady'));
+}
+
+function setLoading(btnId, loading, label) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.textContent = loading ? 'Please wait…' : label;
 }
 
 function showLogin() {
@@ -96,52 +108,69 @@ async function handleLogin(e) {
   e.preventDefault();
   clearAuthErrors('login');
 
-  const email    = document.getElementById('loginEmail').value.trim().toLowerCase();
-  const password = document.getElementById('loginPassword').value;
-  const remember = document.getElementById('rememberMe').checked;
+  const identifier = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const password   = document.getElementById('loginPassword').value;
+  const encPass    = document.getElementById('loginEncKey').value;
+  const remember   = document.getElementById('rememberMe').checked;
 
   let valid = true;
-  // Allow plain username (admin) OR a valid email for regular users
-  if (!email) {
-    setAuthError('loginEmail', 'errLoginEmail', 'Enter your username or email.'); valid = false;
-  } else if (email !== ADMIN.email && !/\S+@\S+\.\S+/.test(email)) {
-    setAuthError('loginEmail', 'errLoginEmail', 'Enter a valid email address.'); valid = false;
-  }
-  if (!password) {
-    setAuthError('loginPassword', 'errLoginPwd', 'Password is required.'); valid = false;
-  }
+  if (!identifier) { setAuthError('loginEmail',   'errLoginEmail',  'Enter your username or email.'); valid = false; }
+  else if (identifier !== ADMIN.email && !/\S+@\S+\.\S+/.test(identifier)) {
+                   { setAuthError('loginEmail',   'errLoginEmail',  'Enter a valid email address.'); valid = false; } }
+  if (!password)   { setAuthError('loginPassword','errLoginPwd',    'Password is required.');         valid = false; }
+  if (!encPass)    { setAuthError('loginEncKey',  'errLoginEncKey', 'Encryption key is required.');   valid = false; }
   if (!valid) return;
 
-  const hash = await sha256(password);
+  setLoading('btnLogin', true, 'Sign In');
+  try {
+    const pwdHash = await sha256(password);
 
-  // Check master admin
-  if (email === ADMIN.email) {
-    const adminHash = await sha256(ADMIN.password);
-    if (hash !== adminHash) {
-      setAuthError('loginPassword', 'errLoginPwd', 'Incorrect password.');
+    // ── ADMIN ──
+    if (identifier === ADMIN.email) {
+      const adminHash = await sha256(ADMIN.password);
+      if (pwdHash !== adminHash) { setAuthError('loginPassword','errLoginPwd','Incorrect password.'); return; }
+      if (encPass !== ADMIN.encKey) { setAuthError('loginEncKey','errLoginEncKey','Wrong encryption key.'); return; }
+
+      let users  = getUsers();
+      let adminU = users.find(u => u.email === ADMIN.email);
+      if (!adminU) {
+        // First admin login – bootstrap encryption salt
+        const { salt, cryptoKey } = await initEncryption(encPass);
+        adminU = { email: ADMIN.email, name: ADMIN.name, role: 'admin', hash: adminHash, encSalt: salt };
+        users.push(adminU); saveUsers(users);
+        window.currentCryptoKey = cryptoKey;
+      } else {
+        const key = await deriveKey(encPass, adminU.encSalt);
+        const result = await loadUserRecords(adminU.email, key).catch(() => 'WRONG_KEY');
+        if (result === 'WRONG_KEY') { setAuthError('loginEncKey','errLoginEncKey','Wrong encryption key.'); return; }
+        window.currentCryptoKey = key;
+      }
+      window.currentUserEmail = ADMIN.email;
+      setSession({ ...ADMIN, encSalt: adminU.encSalt }, remember);
+      launchApp({ ...ADMIN, encSalt: adminU.encSalt });
+      authToast(`Welcome back, ${ADMIN.name}! 👑`);
       return;
     }
-    setSession(ADMIN, remember);
-    launchApp(ADMIN);
-    authToast(`Welcome back, ${ADMIN.name}! 👑`);
-    return;
-  }
 
-  // Check registered users
-  const users = getUsers();
-  const user  = users.find(u => u.email === email);
-  if (!user) {
-    setAuthError('loginEmail', 'errLoginEmail', 'No account found with this email.');
-    return;
-  }
-  if (user.hash !== hash) {
-    setAuthError('loginPassword', 'errLoginPwd', 'Incorrect password.');
-    return;
-  }
+    // ── REGISTERED USER ──
+    const users = getUsers();
+    const user  = users.find(u => u.email === identifier);
+    if (!user)              { setAuthError('loginEmail',   'errLoginEmail',  'No account found.'); return; }
+    if (user.hash !== pwdHash) { setAuthError('loginPassword','errLoginPwd', 'Incorrect password.'); return; }
 
-  setSession(user, remember);
-  launchApp(user);
-  authToast(`Welcome back, ${user.name}!`);
+    const key = await deriveKey(encPass, user.encSalt);
+    const result = await loadUserRecords(user.email, key).catch(() => 'WRONG_KEY');
+    if (result === 'WRONG_KEY') { setAuthError('loginEncKey','errLoginEncKey','Wrong encryption key.'); return; }
+
+    window.currentUserEmail = user.email;
+    window.currentCryptoKey = key;
+    setSession(user, remember);
+    launchApp(user);
+    authToast(`Welcome back, ${user.name}!`);
+
+  } finally {
+    setLoading('btnLogin', false, 'Sign In');
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -151,49 +180,49 @@ async function handleRegister(e) {
   e.preventDefault();
   clearAuthErrors('register');
 
-  const name     = document.getElementById('regName').value.trim();
-  const email    = document.getElementById('regEmail').value.trim().toLowerCase();
-  const password = document.getElementById('regPassword').value;
-  const confirm  = document.getElementById('regConfirm').value;
+  const name       = document.getElementById('regName').value.trim();
+  const email      = document.getElementById('regEmail').value.trim().toLowerCase();
+  const password   = document.getElementById('regPassword').value;
+  const confirm    = document.getElementById('regConfirm').value;
+  const encPass    = document.getElementById('regEncKey').value;
+  const encConfirm = document.getElementById('regEncKeyConfirm').value;
 
   let valid = true;
-  if (!name) {
-    setAuthError('regName', 'errRegName', 'Full name is required.'); valid = false;
-  }
-  if (!email || !/\S+@\S+\.\S+/.test(email)) {
-    setAuthError('regEmail', 'errRegEmail', 'Enter a valid email.'); valid = false;
-  }
-  if (password.length < 8) {
-    setAuthError('regPassword', 'errRegPwd', 'Password must be at least 8 characters.'); valid = false;
-  } else if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
-    setAuthError('regPassword', 'errRegPwd', 'Must include at least one uppercase letter and one number.'); valid = false;
-  }
-  if (password !== confirm) {
-    setAuthError('regConfirm', 'errRegConfirm', 'Passwords do not match.'); valid = false;
-  }
+  if (!name)    { setAuthError('regName',          'errRegName',          'Full name is required.'); valid = false; }
+  if (!email || !/\S+@\S+\.\S+/.test(email))
+               { setAuthError('regEmail',          'errRegEmail',         'Enter a valid email.'); valid = false; }
+  if (password.length < 8)
+               { setAuthError('regPassword',       'errRegPwd',           'Min 8 characters required.'); valid = false; }
+  else if (!/[A-Z]/.test(password) || !/[0-9]/.test(password))
+               { setAuthError('regPassword',       'errRegPwd',           'Need at least 1 uppercase & 1 number.'); valid = false; }
+  if (password !== confirm)
+               { setAuthError('regConfirm',        'errRegConfirm',       'Passwords do not match.'); valid = false; }
+  if (encPass.length < 6)
+               { setAuthError('regEncKey',         'errRegEncKey',        'Encryption key must be at least 6 chars.'); valid = false; }
+  if (encPass !== encConfirm)
+               { setAuthError('regEncKeyConfirm',  'errRegEncKeyConfirm', 'Encryption keys do not match.'); valid = false; }
   if (!valid) return;
 
-  // Block admin email
-  if (email === ADMIN.email) {
-    setAuthError('regEmail', 'errRegEmail', 'This email is reserved.'); return;
-  }
-
-  // Check duplicate
+  if (email === ADMIN.email) { setAuthError('regEmail','errRegEmail','This email is reserved.'); return; }
   const users = getUsers();
   if (users.find(u => u.email === email)) {
-    setAuthError('regEmail', 'errRegEmail', 'An account with this email already exists.'); return;
+    setAuthError('regEmail','errRegEmail','An account with this email already exists.'); return;
   }
 
-  const hash = await sha256(password);
-  const newUser = { email, name, hash, role: 'user', createdAt: new Date().toISOString() };
-  users.push(newUser);
-  saveUsers(users);
-
-  authToast(`Account created! Welcome, ${name} 🎉`);
-  // Auto-switch to login tab
-  switchTab('login');
-  document.getElementById('loginEmail').value = email;
-  document.getElementById('loginPassword').value = '';
+  setLoading('btnRegister', true, 'Create Account');
+  try {
+    const [pwdHash, { salt }] = await Promise.all([sha256(password), initEncryption(encPass)]);
+    const newUser = { email, name, hash: pwdHash, role: 'user', encSalt: salt, createdAt: new Date().toISOString() };
+    users.push(newUser);
+    saveUsers(users);
+    authToast(`Account created! Welcome, ${name} 🎉`);
+    switchTab('login');
+    document.getElementById('loginEmail').value    = email;
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginEncKey').value   = '';
+  } finally {
+    setLoading('btnRegister', false, 'Create Account');
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -203,6 +232,7 @@ function handleLogout() {
   clearSession();
   showLogin();
   document.getElementById('loginForm').reset();
+  document.getElementById('registerForm').reset();
   authToast('Signed out.', 'error');
 }
 
@@ -230,10 +260,11 @@ function setAuthError(fieldId, errId, msg) {
 }
 
 function clearAuthErrors(scope) {
-  const ids = scope === 'login'
-    ? [['loginEmail','errLoginEmail'], ['loginPassword','errLoginPwd']]
-    : [['regName','errRegName'], ['regEmail','errRegEmail'], ['regPassword','errRegPwd'], ['regConfirm','errRegConfirm']];
-  ids.forEach(([fid, eid]) => {
+  const map = scope === 'login'
+    ? [['loginEmail','errLoginEmail'],['loginPassword','errLoginPwd'],['loginEncKey','errLoginEncKey']]
+    : [['regName','errRegName'],['regEmail','errRegEmail'],['regPassword','errRegPwd'],
+       ['regConfirm','errRegConfirm'],['regEncKey','errRegEncKey'],['regEncKeyConfirm','errRegEncKeyConfirm']];
+  map.forEach(([fid, eid]) => {
     const f = document.getElementById(fid); if (f) f.classList.remove('invalid');
     const e = document.getElementById(eid); if (e) e.textContent = '';
   });
@@ -257,26 +288,16 @@ function bindTogglePwd() {
 // BOOT
 // ──────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Check existing session
-  const session = getSession();
-  if (session) {
-    launchApp(session);
-  } else {
-    showLogin();
-  }
+  // CryptoKey cannot be persisted, always require fresh login
+  clearSession();
+  showLogin();
 
-  // Tab switching
   document.querySelectorAll('.auth-tab').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 
-  // Form submissions
   document.getElementById('loginForm').addEventListener('submit', handleLogin);
   document.getElementById('registerForm').addEventListener('submit', handleRegister);
-
-  // Logout button (wired here; app.js also binds it but this fires first)
   document.getElementById('btnLogout').addEventListener('click', handleLogout);
-
-  // Password visibility toggles
   bindTogglePwd();
 });

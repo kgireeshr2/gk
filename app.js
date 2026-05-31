@@ -1,6 +1,6 @@
 /* =============================================================
    app.js – Account Manager  (CRUD + CSV import/export)
-   Storage: localStorage  |  Default data seeded from data.csv
+   Storage: AES-GCM encrypted per-user blobs (via crypto-store.js)
    ============================================================= */
 
 'use strict';
@@ -8,8 +8,6 @@
 // ──────────────────────────────────────────────
 // 1. CONSTANTS & HELPERS
 // ──────────────────────────────────────────────
-const STORAGE_KEY = 'accountManager_records';
-
 const uid = () => '_' + Math.random().toString(36).slice(2, 10);
 
 const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -24,18 +22,14 @@ function showToast(msg, type = 'success') {
 }
 
 // ──────────────────────────────────────────────
-// 2. DATA LAYER  (localStorage)
+// 2. IN-MEMORY RECORDS  (encrypted at rest via crypto-store.js)
 // ──────────────────────────────────────────────
-function loadRecords() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  return raw ? JSON.parse(raw) : null;
-}
+let records = [];
 
-function saveRecords(records) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+async function persistRecords() {
+  await saveUserRecords(window.currentUserEmail, records, window.currentCryptoKey);
+  githubSync(getEncStoreJSON());
 }
-
-let records = loadRecords() || [];
 
 // ──────────────────────────────────────────────
 // 3. CSV PARSER / SERIALISER
@@ -72,20 +66,19 @@ function toCSV(data) {
 }
 
 // ──────────────────────────────────────────────
-// 4. SEED FROM data.csv ON FIRST LOAD
+// 4. LOAD RECORDS ON AUTH READY
 // ──────────────────────────────────────────────
-async function seedFromCSV() {
-  if (loadRecords() !== null) return;  // already seeded
-  try {
-    const res = await fetch('data.csv');
-    if (!res.ok) throw new Error('no csv');
-    const text = await res.text();
-    records = parseCSV(text);
-    saveRecords(records);
-  } catch {
-    records = [];
-    saveRecords(records);
+async function initRecords() {
+  // Try GitHub pull first (new device scenario)
+  if (typeof githubLoad === 'function') await githubLoad();
+
+  const existing = await loadUserRecords(window.currentUserEmail, window.currentCryptoKey);
+  if (existing !== null) {
+    records = existing;
+    return;
   }
+  records = [];
+  await persistRecords();
 }
 
 // ──────────────────────────────────────────────
@@ -263,23 +256,23 @@ function collectForm() {
 // ──────────────────────────────────────────────
 // 10. CRUD OPERATIONS
 // ──────────────────────────────────────────────
-function createRecord(data) {
+async function createRecord(data) {
   const record = { id: uid(), createdAt: new Date().toISOString(), ...data };
   records.unshift(record);
-  saveRecords(records);
+  await persistRecords();
   return record;
 }
 
-function updateRecord(id, data) {
+async function updateRecord(id, data) {
   const idx = records.findIndex(r => r.id === id);
   if (idx === -1) return;
   records[idx] = { ...records[idx], ...data };
-  saveRecords(records);
+  await persistRecords();
 }
 
-function deleteRecord(id) {
+async function deleteRecord(id) {
   records = records.filter(r => r.id !== id);
-  saveRecords(records);
+  await persistRecords();
 }
 
 // ──────────────────────────────────────────────
@@ -339,7 +332,7 @@ function setupImagePreviews() {
 }
 
 // ──────────────────────────────────────────────
-// 13. EXPORT CSV
+// 14. EXPORT CSV  (decrypted, for backup)
 // ──────────────────────────────────────────────
 function exportCSV() {
   const csv  = toCSV(records);
@@ -347,10 +340,10 @@ function exportCSV() {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
-  a.download = `accounts_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = 'data.csv';
   a.click();
   URL.revokeObjectURL(url);
-  showToast('CSV exported!');
+  showToast('CSV exported (decrypted backup)!');
 }
 
 // ──────────────────────────────────────────────
@@ -366,9 +359,10 @@ function importCSV(file) {
       const existing = new Set(records.map(r => r.id));
       const newOnes  = imported.filter(r => !existing.has(r.id));
       records = [...newOnes, ...records];
-      saveRecords(records);
-      renderCards();
-      showToast(`Imported ${newOnes.length} new record(s).`);
+      persistRecords().then(() => {
+        renderCards();
+        showToast(`Imported ${newOnes.length} new record(s).`);
+      });
     } catch {
       showToast('Failed to parse CSV.', 'error');
     }
@@ -382,7 +376,7 @@ function importCSV(file) {
 let pendingDeleteId = null;
 
 document.addEventListener('authReady', async () => {
-  await seedFromCSV();
+  await initRecords();
   renderCards();
   setupImagePreviews();
 
@@ -405,7 +399,7 @@ document.addEventListener('authReady', async () => {
   document.getElementById('deleteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDeleteModal(); });
 
   // Form submit (create / update)
-  document.getElementById('accountForm').addEventListener('submit', e => {
+  document.getElementById('accountForm').addEventListener('submit', async e => {
     e.preventDefault();
     if (!validateForm()) return;
 
@@ -413,10 +407,10 @@ document.addEventListener('authReady', async () => {
     const data = collectForm();
 
     if (id) {
-      updateRecord(id, data);
+      await updateRecord(id, data);
       showToast('Account updated!');
     } else {
-      createRecord(data);
+      await createRecord(data);
       showToast('Account added!');
     }
     closeModal();
@@ -448,9 +442,9 @@ document.addEventListener('authReady', async () => {
   });
 
   // Confirm delete
-  document.getElementById('btnConfirmDelete').addEventListener('click', () => {
+  document.getElementById('btnConfirmDelete').addEventListener('click', async () => {
     if (!pendingDeleteId) return;
-    deleteRecord(pendingDeleteId);
+    await deleteRecord(pendingDeleteId);
     pendingDeleteId = null;
     closeDeleteModal();
     renderCards();

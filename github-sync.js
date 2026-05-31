@@ -1,0 +1,224 @@
+/* =============================================================
+   github-sync.js – Write data.csv back to the GitHub repo
+   Uses the GitHub Contents API (works on GitHub Pages).
+
+   Config stored in localStorage: acctMgr_ghConfig
+   {
+     owner  : 'your-github-username',
+     repo   : 'your-repo-name',
+     branch : 'main',
+     path   : 'data.csv',
+     token  : 'ghp_...'   (PAT with repo scope)
+   }
+   ============================================================= */
+
+'use strict';
+
+const GH_CONFIG_KEY = 'acctMgr_ghConfig';
+
+// ──────────────────────────────────────────────
+// Config helpers
+// ──────────────────────────────────────────────
+function getGHConfig() {
+  const raw = localStorage.getItem(GH_CONFIG_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function saveGHConfig(cfg) {
+  localStorage.setItem(GH_CONFIG_KEY, JSON.stringify(cfg));
+}
+
+function clearGHConfig() {
+  localStorage.removeItem(GH_CONFIG_KEY);
+}
+
+// ──────────────────────────────────────────────
+// Base64 encode / decode (browser-safe, handles UTF-8)
+// ──────────────────────────────────────────────
+function toBase64(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+function fromBase64(b64) {
+  return decodeURIComponent(escape(atob(b64)));
+}
+
+// ──────────────────────────────────────────────
+// GitHub API: get current file SHA
+// (needed for PUT / update)
+// ──────────────────────────────────────────────
+async function getFileSHA(cfg) {
+  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}?ref=${cfg.branch}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `token ${cfg.token}`,
+      Accept: 'application/vnd.github+json',
+    },
+  });
+  if (res.status === 404) return null;           // file doesn't exist yet
+  if (!res.ok) throw new Error(`GitHub API ${res.status}: ${res.statusText}`);
+  const json = await res.json();
+  return json.sha;
+}
+
+// ──────────────────────────────────────────────
+// GitHub API: write file
+// ──────────────────────────────────────────────
+async function writeFile(cfg, csvContent) {
+  const sha = await getFileSHA(cfg);
+  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}`;
+
+  const body = {
+    message: `chore: update ${cfg.path} via Account Manager`,
+    content: toBase64(csvContent),
+    branch:  cfg.branch,
+  };
+  if (sha) body.sha = sha;   // required when updating an existing file
+
+  const res = await fetch(url, {
+    method:  'PUT',
+    headers: {
+      Authorization:  `token ${cfg.token}`,
+      Accept:         'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `GitHub API ${res.status}`);
+  }
+  return true;
+}
+
+// ──────────────────────────────────────────────
+// Public: sync encrypted store JSON → GitHub repo
+// Called from persistRecords() after every mutation.
+// ──────────────────────────────────────────────
+async function githubSync(jsonContent) {
+  const cfg = getGHConfig();
+  if (!cfg) return;  // not configured – skip silently
+
+  const indicator = document.getElementById('syncIndicator');
+  if (indicator) { indicator.textContent = '⏳ Syncing…'; indicator.className = 'sync-indicator syncing'; }
+
+  try {
+    await writeFile(cfg, jsonContent);
+    if (indicator) { indicator.textContent = '✅ Synced'; indicator.className = 'sync-indicator synced'; }
+    setTimeout(() => { if (indicator) indicator.textContent = ''; }, 3000);
+  } catch (err) {
+    console.error('GitHub sync failed:', err);
+    if (indicator) { indicator.textContent = '❌ Sync failed'; indicator.className = 'sync-indicator error'; }
+    showToast(`Sync failed: ${err.message}`, 'error');
+  }
+}
+
+// ──────────────────────────────────────────────
+// Pull encrypted store from GitHub → merge into
+// localStorage. Used by initRecords() on new device.
+// ──────────────────────────────────────────────
+async function githubLoad() {
+  const cfg = getGHConfig();
+  if (!cfg) return false;
+  try {
+    const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}?ref=${cfg.branch}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `token ${cfg.token}`, Accept: 'application/vnd.github+json' },
+    });
+    if (!res.ok) return false;
+    const json = await res.json();
+    const content = fromBase64(json.content.replace(/\n/g, ''));
+    return mergeRemoteStore(content);
+  } catch {
+    return false;
+  }
+}
+
+// ──────────────────────────────────────────────
+// Settings Modal – open / close
+// ──────────────────────────────────────────────
+function openSettingsModal() {
+  const cfg = getGHConfig();
+  if (cfg) {
+    document.getElementById('ghOwner').value  = cfg.owner  || '';
+    document.getElementById('ghRepo').value   = cfg.repo   || '';
+    document.getElementById('ghBranch').value = cfg.branch || 'main';
+    document.getElementById('ghPath').value   = cfg.path   || 'encrypted_data.json';
+    document.getElementById('ghToken').value  = cfg.token  || '';
+  }
+  document.getElementById('settingsModal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSettingsModal() {
+  document.getElementById('settingsModal').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+// ──────────────────────────────────────────────
+// Settings save
+// ──────────────────────────────────────────────
+async function saveSettings(e) {
+  e.preventDefault();
+  const cfg = {
+    owner:  document.getElementById('ghOwner').value.trim(),
+    repo:   document.getElementById('ghRepo').value.trim(),
+    branch: document.getElementById('ghBranch').value.trim() || 'main',
+    path:   document.getElementById('ghPath').value.trim()   || 'data.csv',
+    token:  document.getElementById('ghToken').value.trim(),
+  };
+
+  if (!cfg.owner || !cfg.repo || !cfg.token) {
+    showToast('Owner, Repo and Token are required.', 'error');
+    return;
+  }
+
+  // Test connection
+  const btn = document.getElementById('btnSaveSettings');
+  btn.disabled = true;
+  btn.textContent = 'Testing…';
+
+  try {
+    await getFileSHA(cfg);   // just checks the API responds
+    saveGHConfig(cfg);
+    closeSettingsModal();
+    showToast('GitHub sync configured! ✅');
+  } catch (err) {
+    showToast(`Connection failed: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save & Connect';
+  }
+}
+
+// ──────────────────────────────────────────────
+// Boot – wire up settings UI
+// ──────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('btnOpenSettings').addEventListener('click', openSettingsModal);
+  document.getElementById('btnCloseSettings').addEventListener('click', closeSettingsModal);
+  document.getElementById('btnCancelSettings').addEventListener('click', closeSettingsModal);
+  document.getElementById('btnDisconnectGH').addEventListener('click', () => {
+    clearGHConfig();
+    closeSettingsModal();
+    showToast('GitHub sync disconnected.', 'error');
+    updateSettingsBadge();
+  });
+  document.getElementById('settingsModal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeSettingsModal();
+  });
+  document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+    await saveSettings(e);
+    updateSettingsBadge();
+  });
+
+  updateSettingsBadge();
+});
+
+function updateSettingsBadge() {
+  const btn = document.getElementById('btnOpenSettings');
+  const cfg = getGHConfig();
+  btn.title = cfg ? `GitHub sync: ${cfg.owner}/${cfg.repo}` : 'Connect GitHub';
+  btn.classList.toggle('btn-connected', !!cfg);
+}
