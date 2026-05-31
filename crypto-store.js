@@ -172,14 +172,24 @@ function mergeRemoteStore(jsonString) {
   try {
     const remote = JSON.parse(jsonString);
 
-    // Restore users list (contains encSalt needed for decryption)
-    if (remote.__users) {
+    // Restore users list — remote encSalt wins (source of truth)
+    if (remote.__users && Array.isArray(remote.__users)) {
       const localUsersRaw = localStorage.getItem('acctMgr_users');
       const localUsers    = localUsersRaw ? JSON.parse(localUsersRaw) : [];
-      const localEmails   = new Set(localUsers.map(u => u.email));
-      const merged        = [...localUsers];
-      remote.__users.forEach(u => { if (!localEmails.has(u.email)) merged.push(u); });
-      localStorage.setItem('acctMgr_users', JSON.stringify(merged));
+      const localMap      = {};
+      localUsers.forEach(u => { localMap[u.email] = u; });
+      // Merge: remote encSalt/hash overrides local (in case local is stale)
+      remote.__users.forEach(u => {
+        if (localMap[u.email]) {
+          // Update encSalt and hash from remote but keep local password if remote has none
+          if (u.encSalt) localMap[u.email].encSalt = u.encSalt;
+          if (u.hash)    localMap[u.email].hash    = u.hash;
+        } else {
+          localMap[u.email] = u;
+        }
+      });
+      localStorage.setItem('acctMgr_users', JSON.stringify(Object.values(localMap)));
+      console.log('[Crypto] Users restored from remote:', Object.keys(localMap));
     }
 
     // Restore encrypted blobs
@@ -187,8 +197,10 @@ function mergeRemoteStore(jsonString) {
     const local  = getEncStore();
     const merged = { ...local, ...blobs };
     setEncStore(merged);
+    console.log('[Crypto] Encrypted blobs restored for users:', Object.keys(blobs));
     return true;
-  } catch {
+  } catch (err) {
+    console.error('[Crypto] mergeRemoteStore failed:', err);
     return false;
   }
 }

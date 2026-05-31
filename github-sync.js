@@ -130,6 +130,11 @@ async function githubLoad() {
     if (!res.ok) { console.warn('[GH Sync] Load failed:', res.status, res.statusText); return false; }
     const json    = await res.json();
     const content = fromBase64(json.content.replace(/\n/g, ''));
+    try {
+      const parsed = JSON.parse(content);
+      console.log('[GH Sync] Remote JSON keys:', Object.keys(parsed));
+      console.log('[GH Sync] Has __users:', !!parsed.__users, parsed.__users ? parsed.__users.map(u => u.email) : 'none');
+    } catch { console.warn('[GH Sync] Could not parse for diagnostics'); }
     const merged  = mergeRemoteStore(content);
     console.log('[GH Sync] Remote data loaded and merged:', merged);
     return merged;
@@ -214,6 +219,23 @@ document.addEventListener('DOMContentLoaded', () => {
     closeSettingsModal();
     showToast('GitHub sync disconnected.', 'error');
     updateSettingsBadge();
+  });
+
+  document.getElementById('btnForcePush').addEventListener('click', async () => {
+    const cfg = getGHConfig();
+    if (!cfg) { showToast('Connect GitHub first.', 'error'); return; }
+    const btn = document.getElementById('btnForcePush');
+    btn.disabled = true;
+    btn.textContent = 'Pushing…';
+    try {
+      await writeFile(cfg, getEncStoreJSON());
+      showToast('Force push successful! ✅ Data is now on GitHub.');
+    } catch (err) {
+      showToast(`Force push failed: ${err.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '↑ Force Push';
+    }
   });
   document.getElementById('settingsModal').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeSettingsModal();
