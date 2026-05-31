@@ -69,8 +69,16 @@ function toCSV(data) {
 // 4. LOAD RECORDS ON AUTH READY
 // ──────────────────────────────────────────────
 async function initRecords() {
-  // Note: githubLoad() already ran at page boot (in auth.js DOMContentLoaded)
-  // so remote encStore + users are already merged into localStorage before login.
+  // Re-run githubLoad after login to catch any data added from another device/session
+  // since the boot-time load (runs before login UI). This is the authoritative load.
+  if (typeof githubLoad === 'function') {
+    try {
+      await githubLoad();
+    } catch (e) {
+      console.warn('[initRecords] githubLoad failed:', e);
+    }
+  }
+
   try {
     const existing = await loadUserRecords(window.currentUserEmail, window.currentCryptoKey);
     records = existing !== null ? existing : [];
@@ -79,9 +87,8 @@ async function initRecords() {
     records = [];
   }
 
-  if (records.length === 0) {
-    await persistRecords();
-  }
+  // Do NOT auto-persist if empty — would wipe GitHub data on a fresh browser
+  // Records start empty until user creates their first entry
 }
 
 // ──────────────────────────────────────────────
@@ -374,6 +381,44 @@ function importCSV(file) {
 }
 
 // ──────────────────────────────────────────────
+// 14b. SETUP BANNER (shown on fresh browser with no GitHub config)
+// ──────────────────────────────────────────────
+function showSetupBannerIfNeeded() {
+  const existing = document.getElementById('setupBanner');
+  if (existing) existing.remove();
+
+  const hasRecords = records.length > 0;
+  if (hasRecords) return; // data loaded fine
+
+  const banner = document.createElement('div');
+  banner.id = 'setupBanner';
+  banner.style.cssText = `
+    background: var(--clr-surface, #1e1e2e);
+    border: 1.5px solid var(--clr-accent, #7c6af7);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: .9rem;
+    color: var(--clr-text, #cdd6f4);
+  `;
+  banner.innerHTML = `
+    <span style="font-size:1.5rem">📥</span>
+    <div style="flex:1">
+      <strong>No records found locally.</strong><br>
+      Click <strong>↓ Pull</strong> in the header to fetch your latest data from GitHub.
+    </div>
+    <button onclick="document.getElementById('setupBanner').remove()"
+      style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--clr-muted,#888)">✕</button>
+  `;
+
+  const main = document.getElementById('cardsGrid') || document.querySelector('main') || document.body;
+  main.parentElement.insertBefore(banner, main);
+}
+
+// ──────────────────────────────────────────────
 // 15. EVENT LISTENERS
 // ──────────────────────────────────────────────
 let pendingDeleteId = null;
@@ -382,6 +427,7 @@ document.addEventListener('authReady', async () => {
   await initRecords();
   renderCards();
   setupImagePreviews();
+  showSetupBannerIfNeeded();
 
   // Add new
   document.getElementById('btnAddNew').addEventListener('click', () => {
@@ -479,4 +525,20 @@ document.addEventListener('authReady', async () => {
     if (!document.getElementById('viewModal').classList.contains('hidden'))   { closeViewModal();   return; }
     if (!document.getElementById('modal').classList.contains('hidden'))       { closeModal();       return; }
   });
+});
+
+// Force Pull: re-load records from already-merged localStorage and re-render cards
+document.addEventListener('forcePull', async () => {
+  try {
+    const fresh = await loadUserRecords(window.currentUserEmail, window.currentCryptoKey);
+    if (fresh !== null) {
+      records = fresh;
+      renderCards();
+      const b = document.getElementById('setupBanner');
+      if (b) b.remove();
+      showToast(`Loaded ${fresh.length} record(s) from GitHub ✅`);
+    }
+  } catch (e) {
+    console.error('[forcePull] Failed to reload records:', e);
+  }
 });

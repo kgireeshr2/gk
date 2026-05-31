@@ -19,9 +19,19 @@ const GH_CONFIG_KEY = 'acctMgr_ghConfig';
 // ──────────────────────────────────────────────
 // Config helpers
 // ──────────────────────────────────────────────
+// Default config — works out of the box on any browser without manual setup.
+// Override via the ⚙ Settings modal if needed.
+const GH_DEFAULT_CONFIG = {
+  owner:  'kgireeshr2',
+  repo:   'gk',
+  branch: 'main',
+  path:   'encrypted_data.json',
+  token:  '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',
+};
+
 function getGHConfig() {
   const raw = localStorage.getItem(GH_CONFIG_KEY);
-  return raw ? JSON.parse(raw) : null;
+  return raw ? JSON.parse(raw) : GH_DEFAULT_CONFIG;
 }
 
 function saveGHConfig(cfg) {
@@ -179,14 +189,12 @@ async function githubLoad() {
 // Settings Modal – open / close
 // ──────────────────────────────────────────────
 function openSettingsModal() {
-  const cfg = getGHConfig();
-  if (cfg) {
-    document.getElementById('ghOwner').value  = cfg.owner  || '';
-    document.getElementById('ghRepo').value   = cfg.repo   || '';
-    document.getElementById('ghBranch').value = cfg.branch || 'main';
-    document.getElementById('ghPath').value   = cfg.path   || 'encrypted_data.json';
-    document.getElementById('ghToken').value  = cfg.token  || '';
-  }
+  const cfg = getGHConfig();  // always returns at least the default
+  document.getElementById('ghOwner').value  = cfg.owner  || '';
+  document.getElementById('ghRepo').value   = cfg.repo   || '';
+  document.getElementById('ghBranch').value = cfg.branch || 'main';
+  document.getElementById('ghPath').value   = cfg.path   || 'encrypted_data.json';
+  document.getElementById('ghToken').value  = cfg.token  || '';
   document.getElementById('settingsModal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
@@ -252,6 +260,28 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSettingsBadge();
   });
 
+  document.getElementById('btnForcePull').addEventListener('click', async () => {
+    const cfg = getGHConfig();
+    if (!cfg) { showToast('Connect GitHub first — open ⚙ settings.', 'error'); return; }
+    const btn = document.getElementById('btnForcePull');
+    btn.disabled = true;
+    btn.textContent = 'Pulling…';
+    try {
+      const ok = await githubLoad();
+      if (!ok) { showToast('Pull failed or no remote data yet.', 'error'); return; }
+      // Re-render with newly merged data via forcePull event (handled in app.js)
+      if (window.currentCryptoKey && window.currentUserEmail) {
+        document.dispatchEvent(new CustomEvent('forcePull'));
+      }
+      showToast('Pulled latest data from GitHub ✅');
+    } catch (err) {
+      showToast(`Pull failed: ${err.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '↓ Pull';
+    }
+  });
+
   document.getElementById('btnForcePush').addEventListener('click', async () => {
     const cfg = getGHConfig();
     if (!cfg) { showToast('Connect GitHub first.', 'error'); return; }
@@ -281,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function updateSettingsBadge() {
   const btn = document.getElementById('btnOpenSettings');
-  const cfg = getGHConfig();
-  btn.title = cfg ? `GitHub sync: ${cfg.owner}/${cfg.repo}` : 'Connect GitHub';
-  btn.classList.toggle('btn-connected', !!cfg);
+  const cfg = getGHConfig();  // always has at least the default
+  btn.title = `GitHub sync: ${cfg.owner}/${cfg.repo}`;
+  btn.classList.add('btn-connected');
 }
