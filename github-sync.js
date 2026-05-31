@@ -134,21 +134,38 @@ async function githubLoad() {
     });
     if (res.status === 404) { console.log('[GH Sync] Remote file not found yet.'); return false; }
     if (!res.ok) { console.warn('[GH Sync] Load failed:', res.status, res.statusText); return false; }
-    const json    = await res.json();
-    // GitHub wraps base64 with \r\n every 60 chars — strip ALL whitespace
-    const rawB64  = json.content.replace(/\s/g, '');
-    console.log('[GH Sync] Raw base64 length:', rawB64.length);
-    const content = fromBase64(rawB64);
-    console.log('[GH Sync] Decoded content length:', content.length, '| first 50:', content.slice(0, 50));
+
+    const json = await res.json();
+    let content = '';
+
+    if (json.content && json.content.trim().length > 0) {
+      // Inline base64 — strip ALL whitespace (GitHub adds \r\n every 60 chars)
+      const rawB64 = json.content.replace(/\s/g, '');
+      console.log('[GH Sync] Inline base64 length:', rawB64.length);
+      content = fromBase64(rawB64);
+    } else if (json.download_url) {
+      // File too large for inline content — fetch raw directly
+      console.log('[GH Sync] Falling back to download_url:', json.download_url);
+      const rawRes = await fetch(json.download_url);
+      if (!rawRes.ok) { console.warn('[GH Sync] download_url fetch failed'); return false; }
+      content = await rawRes.text();
+    } else {
+      console.warn('[GH Sync] No content or download_url in response. File may be empty.');
+      return false;
+    }
+
+    console.log('[GH Sync] Content length:', content.length, '| first 60:', content.slice(0, 60));
+
     try {
       const parsed = JSON.parse(content);
-      console.log('[GH Sync] Keys in remote file:', Object.keys(parsed));
-      console.log('[GH Sync] Has __users:', !!parsed.__users, parsed.__users ? parsed.__users.map(u => u.email) : 'none');
-      console.log('[GH Sync] Encrypted blobs for:', Object.keys(parsed).filter(k => k !== '__users'));
+      console.log('[GH Sync] Keys:', Object.keys(parsed));
+      console.log('[GH Sync] __users:', parsed.__users ? parsed.__users.map(u => u.email) : 'none');
+      console.log('[GH Sync] Blobs for:', Object.keys(parsed).filter(k => k !== '__users'));
     } catch (diagErr) {
-      console.error('[GH Sync] Parse failed:', diagErr.message);
-      console.error('[GH Sync] Content snippet:', content.slice(0, 200));
+      console.error('[GH Sync] JSON parse failed:', diagErr.message, '| snippet:', content.slice(0, 300));
+      return false;
     }
+
     const merged = mergeRemoteStore(content);
     console.log('[GH Sync] Merge result:', merged);
     return merged;
