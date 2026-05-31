@@ -1,7 +1,16 @@
 {
   "gireeshkamasani": {
     "salt": "beRR2Wnixhg1T7PE2OIgbg==",
-    "iv": "RKuI3OnTwqSQYlGT",
-    "cipher": "XS+j8Or2wIK6txEV+vKJTP3g"
-  }
+    "iv": "u/1eKSoz+EL28oE8",
+    "cipher": "i9czZMUMZofdCL6+SJl+LG26"
+  },
+  "__users": [
+    {
+      "email": "gireeshkamasani",
+      "name": "Gireesh Kamasani",
+      "role": "admin",
+      "encSalt": "DYqR3jS0zROFZPQaYgiwhA==",
+      "hash": "ae7a4c07b854abdc42e4a9ec73d4a9c9a7e8f78af68509094aab10bc313144e5"
+    }
+  ]
 }
