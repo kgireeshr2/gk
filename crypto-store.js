@@ -166,13 +166,26 @@ async function exportDecrypted(userEmail, cryptoKey) {
 
 // ──────────────────────────────────────────────
 // LOAD ENCRYPTED STORE FROM GITHUB (JSON string)
+// Also restores the users list (needed for encSalt on new devices)
 // ──────────────────────────────────────────────
 function mergeRemoteStore(jsonString) {
   try {
     const remote = JSON.parse(jsonString);
+
+    // Restore users list (contains encSalt needed for decryption)
+    if (remote.__users) {
+      const localUsersRaw = localStorage.getItem('acctMgr_users');
+      const localUsers    = localUsersRaw ? JSON.parse(localUsersRaw) : [];
+      const localEmails   = new Set(localUsers.map(u => u.email));
+      const merged        = [...localUsers];
+      remote.__users.forEach(u => { if (!localEmails.has(u.email)) merged.push(u); });
+      localStorage.setItem('acctMgr_users', JSON.stringify(merged));
+    }
+
+    // Restore encrypted blobs
+    const { __users: _u, ...blobs } = remote;
     const local  = getEncStore();
-    // Remote wins per-user (latest commit is source of truth)
-    const merged = { ...local, ...remote };
+    const merged = { ...local, ...blobs };
     setEncStore(merged);
     return true;
   } catch {
@@ -181,5 +194,12 @@ function mergeRemoteStore(jsonString) {
 }
 
 function getEncStoreJSON() {
-  return JSON.stringify(getEncStore(), null, 2);
+  const store    = getEncStore();
+  const usersRaw = localStorage.getItem('acctMgr_users');
+  const users    = usersRaw ? JSON.parse(usersRaw) : [];
+  // All fields needed: hash for login, encSalt for key derivation on new devices
+  const safeUsers = users.map(({ email, name, role, encSalt, hash, createdAt }) =>
+    ({ email, name, role, encSalt, hash, createdAt })
+  );
+  return JSON.stringify({ ...store, __users: safeUsers }, null, 2);
 }

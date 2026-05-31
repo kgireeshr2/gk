@@ -69,9 +69,8 @@ function toCSV(data) {
 // 4. LOAD RECORDS ON AUTH READY
 // ──────────────────────────────────────────────
 async function initRecords() {
-  // Try GitHub pull first (syncs remote encrypted store to localStorage)
-  if (typeof githubLoad === 'function') await githubLoad();
-
+  // Note: githubLoad() already ran at page boot (in auth.js DOMContentLoaded)
+  // so remote encStore + users are already merged into localStorage before login.
   try {
     const existing = await loadUserRecords(window.currentUserEmail, window.currentCryptoKey);
     records = existing !== null ? existing : [];
@@ -81,7 +80,7 @@ async function initRecords() {
   }
 
   if (records.length === 0) {
-    await persistRecords();  // ensure an empty encrypted entry is saved for this user
+    await persistRecords();
   }
 }
 

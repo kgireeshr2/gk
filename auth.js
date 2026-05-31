@@ -287,7 +287,31 @@ function bindTogglePwd() {
 // ──────────────────────────────────────────────
 // BOOT
 // ──────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Show loading state while pulling remote store
+  const loginBtn = document.getElementById('btnLogin');
+  const authCard = document.querySelector('.auth-card');
+  const hint     = document.createElement('p');
+  hint.id = 'syncHint';
+  hint.style.cssText = 'text-align:center;font-size:.75rem;color:var(--clr-muted);margin-top:-.25rem';
+  hint.textContent = '⏳ Syncing remote data…';
+  if (loginBtn) loginBtn.disabled = true;
+  if (authCard) authCard.appendChild(hint);
+
+  // Pull remote store BEFORE showing login so encSalt is available for key derivation
+  if (typeof githubLoad === 'function') {
+    try {
+      await githubLoad();
+      hint.textContent = '✅ Ready';
+      setTimeout(() => hint.remove(), 1500);
+    } catch {
+      hint.textContent = '';
+    }
+  } else {
+    hint.remove();
+  }
+  if (loginBtn) loginBtn.disabled = false;
+
   // CryptoKey cannot be persisted, always require fresh login
   clearSession();
   showLogin();
